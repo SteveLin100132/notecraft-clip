@@ -1,0 +1,13 @@
+{
+  "name": "notecraft-clip",
+  "version": "3.4.0",
+  "private": true,
+  "description": "Chrome 擴充功能：在頁面上選取區塊，展開被裁切的捲動內容後匯出 PNG。NoteCraft 筆記的截圖來源。",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  },
+  "license": "MIT"
+}

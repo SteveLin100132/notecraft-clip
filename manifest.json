@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "NoteCraft Clip",
+  "version": "3.4.0",
+  "description": "在頁面上直接選取區塊，自動展開被裁切的捲動內容後匯出 PNG。",
+  "permissions": ["activeTab", "scripting", "debugger", "downloads", "offscreen"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "選取區塊並匯出圖片",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "24": "icons/icon24.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/*.woff2", "README.md"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
