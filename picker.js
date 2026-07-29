@@ -762,10 +762,37 @@
     return true;
   }
 
+  /* content-visibility:auto 會把畫面外的子樹跳過渲染，只留 contain-intrinsic-size 佔高度：
+     高度量得到、但截圖是一片空白（有 DOM、就是沒畫出來）。放大 viewport 也補不回來，
+     要強制 content-visibility:visible 逼它畫。只碰 auto，不動作者刻意設的 hidden。 */
+  function readContentVis(el) {
+    try {
+      const cv = getComputedStyle(el).contentVisibility;
+      if (cv) return cv; // Chrome：computed 拿得到
+    } catch (e) {}
+    // jsdom／舊瀏覽器 computed 拿不到時退回讀 inline，才不會漏、也測得出來
+    return (el.style && el.style.getPropertyValue('content-visibility')) || '';
+  }
+
+  function revealContent(node) {
+    let revealed = 0;
+    const list = everyElement(node, []);
+    list.push(node); // 選取節點自己也可能是 content-visibility:auto
+    for (const el of list) {
+      if (readContentVis(el).trim() !== 'auto') continue;
+      remember(el);
+      el.style.setProperty('content-visibility', 'visible', 'important');
+      revealed++;
+    }
+    return revealed;
+  }
+
   function expand(node, opts) {
     saved = [];
     grownSet = new Set();
     const floated = settleFloating(node, opts.floatMode) || 0;
+    // 先喚醒 content-visibility:auto 的畫面外區塊，之後量到的高度才是真的、截圖也才不會中空
+    const revealed = revealContent(node);
     let expanded = 0;
 
     // 1. 撐開選取範圍「內部」的捲動容器，由深到淺（reverse 前序）。
@@ -788,7 +815,7 @@
     for (let n = node; n; n = n.parentElement) {
       if (tryUncap(n, opts)) expanded++;
     }
-    return { expanded, floated };
+    return { expanded, floated, revealed };
   }
 
   function restore() {
@@ -819,6 +846,9 @@
     host.style.display = 'none';
     pageScroll = { x: scrollX, y: scrollY };
 
+    // 展開前先在原始 viewport 掃一遍捲動容器，觸發 lazy render（見 primeLazy 的說明）
+    await primeLazy(selected);
+
     const counts = expand(selected, opts);
     window.scrollTo(0, 0);
     await twoFrames();
@@ -846,6 +876,7 @@
       note,
       expanded: counts.expanded,
       floated: counts.floated,
+      revealed: counts.revealed,
       viewport: { width: window.innerWidth, height: window.innerHeight },
       filename: makeName(),
     };
@@ -867,6 +898,33 @@
       ok: true,
       clip: { x: Math.round(r.left + scrollX), y: Math.round(r.top + scrollY), width, height },
     };
+  }
+
+  /* lazy render（IntersectionObserver／捲動事件觸發）要先「掃過一遍」才會渲染畫面外內容。
+     一定要在 expand() 之前、原始 viewport 下做：這時捲動容器還真的能捲，逐段捲過去才觸發得了；
+     等到 expand 把它們變 height:auto（不再有捲動）、或 viewport 撐到蓋住全部（沒得捲），就掃不動了。
+     內容渲染後會留著，之後展開、截圖就有。用固定小步、每步等兩個 frame 讓那段有時間畫。
+     實測 GCP VM 詳細頁：不先掃就只截到一兩屏、其餘全白。 */
+  async function primeLazy(node) {
+    const step = 600;
+    // 選取相關的捲動容器（祖先＋子孫）各自捲一遍
+    for (const c of findClippers(node)) {
+      const max = c.scrollHeight;
+      const back = c.scrollTop;
+      for (let y = 0; y <= max; y += step) {
+        c.scrollTop = y;
+        await twoFrames();
+      }
+      c.scrollTop = back; // 掃完先還原，expand 的 remember 才記到原始捲動位置
+    }
+    // 頁面本身（window）也可能就是那個會捲的東西
+    const wmax = document.documentElement.scrollHeight;
+    for (let y = 0; y <= wmax; y += step) {
+      window.scrollTo(0, y);
+      await twoFrames();
+    }
+    window.scrollTo(0, 0);
+    await twoFrames();
   }
 
   function makeName() {
@@ -1015,8 +1073,9 @@
 
       const desc = el('div', 'nc-toast-desc');
       let text =
-        '展開 ' + (res.expanded || 0) + ' 層容器、處理 ' + (res.floated || 0) +
-        ' 個浮動元素，輸出 ' + String(res.size || '?').replace('×', ' × ') + '。';
+        '展開 ' + (res.expanded || 0) + ' 層容器、處理 ' + (res.floated || 0) + ' 個浮動元素' +
+        (res.revealed ? '、喚醒 ' + res.revealed + ' 個延遲渲染區塊' : '') +
+        '，輸出 ' + String(res.size || '?').replace('×', ' × ') + '。';
       if (res.warning) text += '（下載 API 失敗，改用備援：' + res.warning + '）';
       if (res.note) text += res.note;
       desc.textContent = text;

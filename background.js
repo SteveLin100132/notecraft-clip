@@ -56,6 +56,7 @@ async function run(tabId, msg) {
       note: shot.note,
       expanded: shot.expanded,
       floated: shot.floated,
+      revealed: shot.revealed,
       size: shot.size,
       via: 'downloads',
     };
@@ -67,6 +68,7 @@ async function run(tabId, msg) {
     note: shot.note,
     expanded: shot.expanded,
     floated: shot.floated,
+    revealed: shot.revealed,
     size: shot.size,
     via: 'blob',
     data: shot.data,
@@ -119,6 +121,9 @@ async function capture(tabId, msg) {
       if (!moved) break;
     }
 
+    // 撐高後給「認 viewport 的」lazy render（IO 型）一點時間畫；捲動觸發型的已在 prepare 掃過了
+    await sleep(300);
+
     const res = await chrome.debugger.sendCommand(target, 'Page.captureScreenshot', {
       format: 'png',
       fromSurface: true,
@@ -133,6 +138,7 @@ async function capture(tabId, msg) {
       note: prep.note,
       expanded: prep.expanded,
       floated: prep.floated,
+      revealed: prep.revealed,
       size: Math.round(clip.width * prep.scale) + '×' + Math.round(clip.height * prep.scale),
     };
   } finally {

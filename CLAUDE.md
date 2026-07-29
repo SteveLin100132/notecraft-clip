@@ -72,15 +72,15 @@ offscreen.js           離螢幕頁面。只做一件事：base64 → blob URL�
 1. `background` 收到 `ncclip:capture`
 2. `chrome.debugger.attach` → `Page.enable`
 3. **等 350ms**——附加偵錯工具會冒出提示列、擠壓頁面，要等重排完
-4. 送 `ncclip:prepare`：`picker` 藏起自己的 UI → 處理浮動元素 → 展開捲動容器 →
-   `scrollTo(0,0)` → 等兩個 frame → 量 rect，回傳 clip / scale / 檔名
+4. 送 `ncclip:prepare`：`picker` 藏起自己的 UI → **`primeLazy()` 在原始 viewport 掃一遍捲動容器逼 lazy render**
+   → 處理浮動元素 → 展開捲動容器 → `scrollTo(0,0)` → 等兩個 frame → 量 rect，回傳 clip / scale / 檔名
 5. `Emulation.setDeviceMetricsOverride` 把 viewport 撐到蓋住整個元素
 6. 送 `ncclip:measure` 重量一次（放大 viewport 會再觸發重排），尺寸有變就回到 5 再撐一次，最多兩輪
-7. `Page.captureScreenshot` 帶 clip
+7. 等 300ms（給 IO 型 lazy render 在撐高後補畫的時間）→ `Page.captureScreenshot` 帶 clip
 8. `clearDeviceMetricsOverride` → 送 `ncclip:cleanup` 還原 DOM → `debugger.detach`
 9. base64 交給 offscreen 轉 blob URL → `chrome.downloads.download`
 
-第 8 步的三件事都在 `finally` 裡，**任何路徑失敗都必須執行**。
+第 8 步的三件事都在 `finally` 裡，**任何路徑失敗都必須執行**。**`primeLazy` 一定要在展開之前做**（見下）。
 
 ## 不可以破壞的約定
 
@@ -156,6 +156,42 @@ offscreen.js           離螢幕頁面。只做一件事：base64 → blob URL�
 
 `growScroller`／`tryUncap` 的「有沒有長高」在 jsdom 測不出來（不做版面計算），
 所以單元測試用 harness 的 `grown: { id: rect }` 模擬 reflow，真頁面一定要另外實機驗證。
+
+### lazy render 要先「掃過一遍」才截，不然畫面外一片空白
+
+有些頁面（GCP VM 詳細頁就是）靠 **IntersectionObserver／捲動事件**才渲染畫面外內容——DOM 一直都在、
+也保留了正確高度（`contain-intrinsic-size` 之類），但不捲進視野就不畫。這跟 `content-visibility` 不同：
+掃全頁 `getComputedStyle(el).contentVisibility` 全是空的，也不是虛擬捲動（DOM 沒被抽掉）。
+症狀一樣是「尺寸量得到、第一二屏之後全白、空白處有 DOM」。
+
+判斷是不是這種：DevTools 開 Device Mode 手動把 viewport 設很高，**整頁自己就渲染出來** → 就是它。
+它認 viewport 大小，所以我們的 `setDeviceMetricsOverride` 撐高後其實會觸發渲染，只是**還沒畫完就截了**。
+
+解法是 `primeLazy()`，**一定要在 `expand()` 之前、原始 viewport 下做**（放 `prepare()` 開頭）：
+對 `findClippers()` 找到的原始捲動容器、以及 window，用固定小步（600px）逐段捲一遍，每步等兩個 frame。
+lazy render 觸發後會留著，之後展開、截圖就有；`background` 撐高後再等 300ms 補「認 viewport 的 IO 型」。
+
+**為什麼一定要在展開前**：等 `expand()` 把捲動容器變成 `height: auto`（不再有捲動）、
+或 viewport 撐到蓋住整份內容（沒得捲），就再也捲不動、觸發不了 lazy render 了。
+第一版錯放在撐高之後、只捲 window，結果 window 已經不會動，等於沒掃——這就是當時「還是一樣空白」的原因。
+（固定小步也重要：不能用 `innerHeight`，撐高後它可能比整份內容還大、一步跳過去。）
+
+這招只對「認 viewport / 捲動事件」的 lazy render 有效。真正的**虛擬捲動**（畫面外把 DOM 抽掉、
+如 CDK virtual scroll）掃了也沒用，那要改成分段捲動＋分段截圖再拼接，是另一套架構，目前沒做。
+
+### content-visibility:auto 的畫面外內容要強制顯示
+
+`content-visibility: auto` 會把畫面外的子樹**跳過渲染**，只留 `contain-intrinsic-size` 佔高度。
+症狀很好認：**尺寸量得到（H 很大）、但截圖從第一、二屏之後就是一片空白，而空白處是有 DOM 的、只是沒畫**。
+放大 viewport 也補不回來。`revealContent()` 在展開前先掃過選取子樹，把 `auto` 的強制成
+`content-visibility: visible !important` 逼它畫；只碰 `auto`，不動作者刻意設的 `hidden`。
+偵測用 computed（`getComputedStyle(el).contentVisibility`），jsdom 拿不到時退回讀 inline。
+
+要在量尺寸「之前」做，撐開後量到的高度才是真的。這一步一定安全（只會多畫、不會改版面），所以無條件執行。
+成功 toast 會多報「喚醒 K 個延遲渲染區塊」，K 為 0 時不顯示。
+
+注意這只解 `content-visibility`；若是**虛擬捲動**（畫面外根本沒建 DOM，如 CDK virtual scroll）
+就不是這條能救的——那種要在截圖前逐段捲過去逼框架渲染，跟「一次撐開一次截」的架構有衝突，目前無解。
 
 ### `contains()` 不跨 shadow 邊界
 

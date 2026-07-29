@@ -198,6 +198,30 @@ test('沒有上下釘死就不當作可解夾的面板（保守，不亂改版�
   assert.equal(page.style('panel'), style, '沒有上下釘死就不要動面板');
 });
 
+test('content-visibility:auto 的畫面外區塊要強制顯示，否則截出空白（有 DOM 沒畫）', async () => {
+  const page = createPage({
+    html: `<!DOCTYPE html><body>
+      <div id="scroller" style="overflow:auto;height:400px">
+        <div id="target">
+          <section id="lazy" style="content-visibility:auto">很長的內容…</section>
+        </div>
+      </div>
+    </body>`,
+    dims: { scroller: [2000, 400] },
+    rects: { target: TALL },
+  });
+  page.pick('target');
+
+  const res = await page.send({ type: 'ncclip:prepare', floatMode: 'hide', wide: false });
+
+  // 注意：jsdom 序列化會吃掉 content-visibility 的 !important（見檔頭說明），只驗屬性與值
+  assert.match(page.style('lazy'), /content-visibility: visible/, 'content-visibility:auto 要被強制顯示');
+  assert.ok(res.revealed >= 1);
+
+  await page.send({ type: 'ncclip:cleanup' });
+  assert.equal(page.document.getElementById('lazy').getAttribute('style'), 'content-visibility:auto', '還原要逐字回到原狀');
+});
+
 test('shadow DOM 裡的浮動元素也要找得到', async () => {
   const page = createPage({
     html: `<!DOCTYPE html><body>
