@@ -107,6 +107,74 @@ test('app shell 的 html / body 也要展開，否則文件被切在視窗高度
   assert.match(page.document.documentElement.getAttribute('style'), /overflow-y: visible/);
 });
 
+test('選取範圍內部的捲動容器（子孫、不在祖先鏈上）也要展開', async () => {
+  // 選整個面板：真正在裁切的捲軸是子孫。彈窗（dialog / 側欄）常是這種結構
+  const page = createPage({
+    html: `<!DOCTYPE html><body>
+      <div id="panel">
+        <header id="head">開機磁碟</header>
+        <div id="body" style="overflow-y:auto;height:600px">
+          <div id="content">很長的表單…</div>
+        </div>
+        <footer id="foot">選取 取消</footer>
+      </div>
+    </body>`,
+    dims: { body: [3000, 600] },
+    rects: { panel: TALL },
+  });
+  page.pick('panel');
+
+  const res = await page.send({ type: 'ncclip:prepare', floatMode: 'hide', wide: false });
+
+  assert.match(page.style('body'), /height: auto !important/, '內層捲動容器要被撐高');
+  assert.ok(res.expanded >= 1);
+
+  await page.send({ type: 'ncclip:cleanup' });
+  assert.equal(page.document.getElementById('body').getAttribute('style'), 'overflow-y:auto;height:600px');
+});
+
+test('固定定位、上下釘死的面板（top layer dialog）要放掉下緣才長得高', async () => {
+  // fixed 面板 top+bottom 兩邊釘死 → height:auto 仍被夾在視窗高度，內層捲軸撐開也沒用。
+  // 面板本身 scrollHeight==clientHeight（內層 overflow:auto 吃掉溢出），clipsContent 認不出來，
+  // 要靠 inset 判斷、放掉 bottom 才會依內容往下長高。
+  const style = 'position:fixed;top:0;bottom:0;right:0;height:100%;overflow:hidden';
+  const page = createPage({
+    html: `<!DOCTYPE html><body>
+      <div id="panel" style="${style}">
+        <div id="body" style="overflow-y:auto;height:100%"><div id="content">很長的表單…</div></div>
+      </div>
+    </body>`,
+    dims: { body: [3000, 800] },
+    rects: { panel: TALL },
+  });
+  page.pick('panel');
+
+  const res = await page.send({ type: 'ncclip:prepare', floatMode: 'hide', wide: false });
+
+  assert.match(page.style('panel'), /bottom: auto/, '上下釘死的定位面板要放掉 bottom');
+  assert.match(page.style('panel'), /height: auto !important/);
+  assert.match(page.style('body'), /height: auto !important/, '內層捲軸也要撐開');
+  assert.ok(res.expanded >= 2);
+
+  await page.send({ type: 'ncclip:cleanup' });
+  assert.equal(page.document.getElementById('panel').getAttribute('style'), style, '還原要逐字回到原狀');
+});
+
+test('沒有捲軸時不去動定位面板（保守，不亂改版面）', async () => {
+  // 面板是 fixed inset 釘死，但裡面沒有任何在裁切的捲軸 → 不該碰它
+  const style = 'position:fixed;top:0;bottom:0;right:0';
+  const page = createPage({
+    html: `<!DOCTYPE html><body>
+      <div id="panel" style="${style}"><div id="content">短內容</div></div>
+    </body>`,
+    rects: { panel: TALL },
+  });
+  page.pick('panel');
+
+  await page.send({ type: 'ncclip:prepare', floatMode: 'hide', wide: false });
+  assert.equal(page.style('panel'), style, '沒有捲軸就不要動定位面板');
+});
+
 test('shadow DOM 裡的浮動元素也要找得到', async () => {
   const page = createPage({
     html: `<!DOCTYPE html><body>

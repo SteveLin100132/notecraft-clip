@@ -327,6 +327,10 @@
     host = document.createElement('div');
     host.style.cssText =
       'position:fixed;inset:0;pointer-events:none;z-index:2147483000;border:0;margin:0;padding:0;';
+    // 光靠 z-index 蓋不過 top layer（<dialog>.showModal / popover 開的彈窗，GCP Console 的側欄就是）。
+    // 把 host 自己也宣告成 popover，raise() 時推進 top layer，才壓得住那些彈窗。
+    // :host{all:initial} 已經把 popover 的 UA 樣式清乾淨，這裡不會帶進預設邊框／置中。
+    host.setAttribute('popover', 'manual');
     root = host.attachShadow({ mode: 'open' });
 
     const style = document.createElement('style');
@@ -355,6 +359,21 @@
     const n = document.createElement(tag);
     if (cls) n.className = cls;
     return n;
+  }
+
+  /* jsdom 與舊版 Chromium（<114）沒有 popover，退回純 z-index，行為跟以前一樣 */
+  function topLayerSupported() {
+    return host && typeof host.showPopover === 'function';
+  }
+
+  /* 把 host 重新推到 top layer 頂端。頁面之後才開的彈窗會疊在我們上面，
+     先 hide 再 show 讓我們成為最後加入者，就會回到最上層。只在 host 可見時呼叫。 */
+  function raise() {
+    if (!topLayerSupported()) return;
+    try {
+      if (host.matches(':popover-open')) host.hidePopover();
+      host.showPopover();
+    } catch (e) {}
   }
 
   /* 依宿主頁面背景亮度決定要不要套深色網頁的白描邊＋深陰影 */
@@ -579,6 +598,7 @@
     mode = 'selected';
     paint(selected, true);
     renderSelectedBar();
+    raise(); // 鎖定當下若使用者又觸發了新彈窗，確保金框與匯出列仍在最上層
   }
 
   /* ---------------- 展開 / 還原 ---------------- */
@@ -601,10 +621,16 @@
 
   function findClippers(node) {
     const list = [];
+    // 祖先鏈（含 node 自己）：內層撐開後外層才是最終尺寸
     let n = node;
     while (n) {
       if (clipsContent(n).any) list.push(n);
       n = n.parentElement;
+    }
+    // 選取範圍內部的捲動容器：選整個面板／dialog 時，真正在裁切的捲軸
+    // 常常是子孫而不在祖先鏈上，只算祖先會少報、也會漏展開
+    for (const d of everyElement(node, [])) {
+      if (clipsContent(d).any) list.push(d);
     }
     return list;
   }
@@ -662,35 +688,73 @@
     return touched;
   }
 
+  /* 判斷元素是不是「定位＋固定尺寸」把內層捲軸夾死的面板（fixed/absolute 的側欄、置中 dialog）。
+     這種容器 scrollHeight==clientHeight——內層自己的 overflow:auto 把溢出吃掉了，clipsContent() 認不出來，
+     但它用 top+bottom 兩邊釘死、或 max-height 把整個面板卡在視窗高度，裡面的捲軸撐開也會被夾回去。
+     只在「選取範圍內真的有捲軸」時才動它（allowUncap），避免對純裝飾的定位元素亂改版面。 */
+  function clampInfo(el, allowUncap) {
+    if (!allowUncap) return null;
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') return null;
+    // computed height 一律回傳 px（拿不到 auto），只能靠 inset 兩邊釘死或 max-height 來認固定尺寸
+    const insetY = cs.top !== 'auto' && cs.bottom !== 'auto';
+    const insetX = cs.left !== 'auto' && cs.right !== 'auto';
+    if (!insetY && cs.maxHeight === 'none' && !(insetX && cs.maxWidth !== 'none')) return null;
+    return { bottom: cs.bottom, right: cs.right, insetY, insetX };
+  }
+
+  /* 撐開單一容器（捲動容器或被夾死的定位面板），只 remember 一次。
+     不動 overflow，改讓容器自己長高：overflow:hidden 長到內容高度後本來就切不到東西，
+     也不會害 sticky 子孫失去捲動容器。細節見 CLAUDE.md「不要動 overflow（預設路徑）」。 */
+  function relax(el, opts, allowUncap) {
+    const clip = clipsContent(el);
+    const clamp = (clip.any) ? null : clampInfo(el, allowUncap); // 是捲軸就照捲軸處理，否則才看要不要解夾
+    if (!clip.any && !clamp) return false;
+
+    remember(el);
+    el.style.setProperty('max-height', 'none', 'important');
+    el.style.setProperty('height', 'auto', 'important');
+    el.style.setProperty('min-height', 'auto', 'important'); // 解掉 flex 的 min-height:0
+
+    // 根層的 overflow 決定整個 viewport 能不能捲，hidden 會直接截斷文件高度
+    if (isRoot(el) && clip.clipsY) {
+      el.style.setProperty('overflow-y', 'visible', 'important');
+    }
+    // 上下釘死的面板要放掉下緣，height:auto 才會依內容從 top 往下長高（top 不動，量測座標才穩）
+    if (clamp && clamp.insetY && clamp.bottom !== 'auto') {
+      el.style.setProperty('bottom', 'auto', 'important');
+    }
+    if (opts.wide) {
+      el.style.setProperty('overflow', 'visible', 'important');
+      el.style.setProperty('max-width', 'none', 'important');
+      if (clamp && clamp.insetX && clamp.right !== 'auto') {
+        el.style.setProperty('right', 'auto', 'important');
+      }
+    }
+    return true;
+  }
+
   function expand(node, opts) {
     saved = [];
     const floated = settleFloating(node, opts.floatMode) || 0;
+    // 有真的在捲的容器，才需要去放掉夾住它的定位面板；沒有就別碰定位元素，維持保守
+    const allowUncap = findClippers(node).length > 0;
+    let expanded = 0;
 
-    // 由內往外走，內層撐開後外層的 scrollHeight 才是對的。
+    // 先撐開選取範圍「內部」的容器，由深到淺（reverse 前序）。
+    // 選整個面板／dialog 時，真正在裁切的捲軸是子孫、不在祖先鏈上，
+    // 漏掉它就只會截到視窗高度那一段。內層先撐開，外層再量 scrollHeight 才對，
+    // 才能接住「內層撐高後外層才開始溢出」的連鎖。
+    for (const d of everyElement(node, []).reverse()) {
+      if (relax(d, opts, allowUncap)) expanded++;
+    }
+
+    // 再由內往外走祖先鏈（含 node 自己）。
     // 一定要走到 html／body：app shell 常寫 height:100%;overflow:hidden，
     // 漏掉它們的話整份文件會被切在視窗高度。
     let n = node;
-    let expanded = 0;
     while (n) {
-      const clip = clipsContent(n);
-      if (clip.any) {
-        remember(n);
-        // 不動 overflow，改讓容器自己長高：overflow:hidden 就切不到東西了，
-        // 也不會害 sticky 子孫失去捲動容器
-        n.style.setProperty('max-height', 'none', 'important');
-        n.style.setProperty('height', 'auto', 'important');
-        n.style.setProperty('min-height', 'auto', 'important'); // 解掉 flex 的 min-height:0
-
-        // 根層的 overflow 決定整個 viewport 能不能捲，hidden 會直接截斷文件高度
-        if (isRoot(n) && clip.clipsY) {
-          n.style.setProperty('overflow-y', 'visible', 'important');
-        }
-        if (opts.wide) {
-          n.style.setProperty('overflow', 'visible', 'important');
-          n.style.setProperty('max-width', 'none', 'important');
-        }
-        expanded++;
-      }
+      if (relax(n, opts, allowUncap)) expanded++;
       n = n.parentElement;
     }
     return { expanded, floated };
@@ -1008,6 +1072,7 @@
     renderPickingBar();
     bar.style.display = '';
     host.style.display = '';
+    raise(); // 頁面此刻已把彈窗開在 top layer，推到它上面才看得到選取框與工具列
   }
 
   function start() {
@@ -1027,7 +1092,12 @@
     for (const type of EVENTS) document.removeEventListener(type, swallow, true);
     closeToast();
     restore();
-    if (host) host.style.display = 'none';
+    if (host) {
+      host.style.display = 'none';
+      if (topLayerSupported() && host.matches(':popover-open')) {
+        try { host.hidePopover(); } catch (e) {} // 收工時退出 top layer，不留隱形彈窗
+      }
+    }
     selected = null;
     current = null;
   }
