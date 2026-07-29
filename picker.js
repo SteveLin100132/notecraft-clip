@@ -13,6 +13,7 @@
   let current = null;
   let selected = null;
   let saved = null;
+  let grownSet = null; // 這輪已處理過的容器，避免同一元素被撐兩次、也讓 undoGrow() 能配對還原
   let pageScroll = null;
   let busy = false;
 
@@ -619,14 +620,6 @@
     return node === document.body || node === document.documentElement;
   }
 
-  /* 選取是否牽涉到 top layer 浮動面板（node 自己、祖先或子孫）。
-     只有這時才啟用「子孫展開＋解夾」這套較侵入的處理，一般 app shell 內容走保守路徑。 */
-  function hasFloatingPanel(node) {
-    for (let n = node; n; n = n.parentElement) if (isFloatingPanel(n)) return true;
-    for (const d of everyElement(node, [])) if (isFloatingPanel(d)) return true;
-    return false;
-  }
-
   function findClippers(node) {
     const list = [];
     // 祖先鏈（含 node 自己）：內層撐開後外層才是最終尺寸
@@ -635,12 +628,9 @@
       if (clipsContent(n).any) list.push(n);
       n = n.parentElement;
     }
-    // 選整個面板／dialog 時，真正在裁切的捲軸常是子孫、不在祖先鏈上。
-    // 但子孫展開只在牽涉 top layer 面板時才做，診斷計數也對齊這個條件才不會虛報。
-    if (hasFloatingPanel(node)) {
-      for (const d of everyElement(node, [])) {
-        if (clipsContent(d).any) list.push(d);
-      }
+    // 選整個面板／dialog 時，真正在裁切的捲軸常是子孫、不在祖先鏈上，一起算進來
+    for (const d of everyElement(node, [])) {
+      if (clipsContent(d).any) list.push(d);
     }
     return list;
   }
@@ -698,91 +688,105 @@
     return touched;
   }
 
-  /* 只有 top layer 的浮動面板（native <dialog>.showModal / popover）才可以「解夾」。
-     為什麼要這麼嚴：一般 app shell 常把捲動主區寫成 position:absolute;inset:0，
-     它的子孫多是絕對定位、本身沒有 in-flow 高度。一旦對它 height:auto／放掉 bottom，
-     整塊會塌成 0，截出一張全白——GCP「網路連線」主內容就是這樣壞掉的。
-     top layer 面板則是自成一塊、錨在 viewport 上的東西，撐開它才安全。 */
-  function isFloatingPanel(el) {
-    if (el === host) return false;
-    try {
-      if (el.matches(':modal') || el.matches(':popover-open')) return true;
-    } catch (e) {}
-    if (el.tagName === 'DIALOG' && el.hasAttribute('open')) return true;
-    if (el.hasAttribute && el.hasAttribute('popover')) return true;
-    return false;
-  }
-
-  /* 浮動面板用 top+bottom 兩邊釘死（或 max-height）把內容卡在視窗高度，裡面的捲軸撐開也會被夾回去。
-     它自己 scrollHeight==clientHeight（內層 overflow:auto 吃掉溢出），clipsContent() 認不出來，
-     要靠 inset 判斷、放掉 bottom 才會依內容從 top 往下長高。只在選取範圍內真的有捲軸時才動（allowUncap）。 */
-  function clampInfo(el, allowUncap) {
-    if (!allowUncap || !isFloatingPanel(el)) return null;
-    const cs = getComputedStyle(el);
-    // computed height 一律回傳 px（拿不到 auto），只能靠 inset 兩邊釘死來認固定尺寸
-    const insetY = cs.top !== 'auto' && cs.bottom !== 'auto';
-    const insetX = cs.left !== 'auto' && cs.right !== 'auto';
-    return { bottom: cs.bottom, right: cs.right, insetY, insetX };
-  }
-
-  /* 撐開單一容器（捲動容器或被夾死的定位面板），只 remember 一次。
-     不動 overflow，改讓容器自己長高：overflow:hidden 長到內容高度後本來就切不到東西，
-     也不會害 sticky 子孫失去捲動容器。細節見 CLAUDE.md「不要動 overflow（預設路徑）」。 */
-  function relax(el, opts, allowUncap) {
-    const clip = clipsContent(el);
-    const clamp = (clip.any) ? null : clampInfo(el, allowUncap); // 是捲軸就照捲軸處理，否則才看要不要解夾
-    if (!clip.any && !clamp) return false;
-
+  function markGrow(el) {
     remember(el);
+    grownSet.add(el);
+  }
+
+  /* 撐開一個真的在裁切的捲動容器：讓它自己長高，不動 overflow
+     （overflow:hidden 長到內容高度後本來就切不到東西，也不會害 sticky 子孫失去捲動容器；
+     見 CLAUDE.md「不要動 overflow（預設路徑）」）。這步一定安全——只放高、不放掉定位錨點。 */
+  function growScroller(el, opts) {
+    if (grownSet.has(el)) return false;
+    const clip = clipsContent(el);
+    if (!clip.any) return false;
+
+    markGrow(el);
     el.style.setProperty('max-height', 'none', 'important');
     el.style.setProperty('height', 'auto', 'important');
     el.style.setProperty('min-height', 'auto', 'important'); // 解掉 flex 的 min-height:0
-
     // 根層的 overflow 決定整個 viewport 能不能捲，hidden 會直接截斷文件高度
     if (isRoot(el) && clip.clipsY) {
       el.style.setProperty('overflow-y', 'visible', 'important');
     }
-    // 上下釘死的面板要放掉下緣，height:auto 才會依內容從 top 往下長高（top 不動，量測座標才穩）
-    if (clamp && clamp.insetY && clamp.bottom !== 'auto') {
-      el.style.setProperty('bottom', 'auto', 'important');
-    }
     if (opts.wide) {
       el.style.setProperty('overflow', 'visible', 'important');
       el.style.setProperty('max-width', 'none', 'important');
-      if (clamp && clamp.insetX && clamp.right !== 'auto') {
-        el.style.setProperty('right', 'auto', 'important');
-      }
+    }
+    return true;
+  }
+
+  /* 還原最後一個 markGrow 的元素（tryUncap 判定要放棄時用）。只動最後一個，維持 saved 的配對。 */
+  function undoGrow(el) {
+    const last = saved[saved.length - 1];
+    if (!last || last.el !== el) return; // 保險：不是最後一個就不碰
+    saved.pop();
+    grownSet.delete(el);
+    if (last.style === null) el.removeAttribute('style');
+    else el.setAttribute('style', last.style);
+  }
+
+  /* 解夾「上下釘死／max-height」的定位面板：放掉 bottom 讓它從 top 依內容往下長高。
+     不能靠結構猜是不是安全——GCP 開機磁碟側欄是「高 z-index 的 fixed div、不是 native <dialog>」，
+     跟 app shell 的 position:absolute;inset:0 版面容器從屬性上難分。後者放掉 bottom 會塌成 0、截出全白。
+     所以「試了再量」：撐開後若沒有長高（塌陷、或本來就放得下）就整個還原，只有真的變高的面板才保留。
+     top 不動很重要，放大 viewport 截圖時座標才穩。 */
+  function tryUncap(el, opts) {
+    if (grownSet.has(el)) return false; // 已被當捲動容器撐過就不重複
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+
+    // computed height 一律回傳 px（拿不到 auto），只能靠 inset 兩邊釘死或 max-height 認固定尺寸
+    const insetY = cs.top !== 'auto' && cs.bottom !== 'auto';
+    const insetX = cs.left !== 'auto' && cs.right !== 'auto';
+    const needV = insetY || cs.maxHeight !== 'none';
+    const needH = opts.wide && (insetX || cs.maxWidth !== 'none');
+    if (!needV && !needH) return false;
+
+    const before = el.getBoundingClientRect().height;
+    markGrow(el);
+    el.style.setProperty('max-height', 'none', 'important');
+    el.style.setProperty('min-height', 'auto', 'important');
+    el.style.setProperty('height', 'auto', 'important');
+    if (needV && cs.bottom !== 'auto') el.style.setProperty('bottom', 'auto', 'important');
+    if (needH) {
+      if (cs.maxWidth !== 'none') el.style.setProperty('max-width', 'none', 'important');
+      if (insetX && cs.right !== 'auto') el.style.setProperty('right', 'auto', 'important');
+    }
+
+    // 撐開後沒有變高 → 不是可安全展開的面板（多半是 app shell 的絕對定位版面容器），整個還原
+    if (el.getBoundingClientRect().height <= before + 1) {
+      undoGrow(el);
+      return false;
     }
     return true;
   }
 
   function expand(node, opts) {
     saved = [];
+    grownSet = new Set();
     const floated = settleFloating(node, opts.floatMode) || 0;
-
-    // 「子孫展開＋解夾」較侵入，只在「選取牽涉 top layer 浮動面板」且「真的有捲軸」時才啟用。
-    // 一般 app shell 內容維持原本只走祖先鏈、只撐 clipsContent 容器的保守路徑——
-    // 那種頁面常把捲動主區寫成 position:absolute;inset:0，多做手術會把版面塌成全白。
-    const aggressive = hasFloatingPanel(node) && findClippers(node).length > 0;
     let expanded = 0;
 
-    // 先撐開選取範圍「內部」的容器，由深到淺（reverse 前序）。
-    // 選整個面板／dialog 時，真正在裁切的捲軸是子孫、不在祖先鏈上，
-    // 漏掉它就只會截到視窗高度那一段。內層先撐開，外層再量 scrollHeight 才對，
-    // 才能接住「內層撐高後外層才開始溢出」的連鎖。
-    if (aggressive) {
-      for (const d of everyElement(node, []).reverse()) {
-        if (relax(d, opts, true)) expanded++;
-      }
+    // 1. 撐開選取範圍「內部」的捲動容器，由深到淺（reverse 前序）。
+    //    選整個面板／dialog 時，真正在裁切的捲軸是子孫、不在祖先鏈上，漏掉就只截到視窗高度那一段。
+    //    內層先撐開，外層再量 scrollHeight 才對，才能接住「內層撐高後外層才開始溢出」的連鎖。
+    for (const d of everyElement(node, []).reverse()) {
+      if (growScroller(d, opts)) expanded++;
+    }
+    // 2. 祖先鏈（含 node 自己）的捲動容器。
+    //    一定要走到 html／body：app shell 常寫 height:100%;overflow:hidden，漏掉會切在視窗高度。
+    for (let n = node; n; n = n.parentElement) {
+      if (growScroller(n, opts)) expanded++;
     }
 
-    // 再由內往外走祖先鏈（含 node 自己）。
-    // 一定要走到 html／body：app shell 常寫 height:100%;overflow:hidden，
-    // 漏掉它們的話整份文件會被切在視窗高度。
-    let n = node;
-    while (n) {
-      if (relax(n, opts, aggressive)) expanded++;
-      n = n.parentElement;
+    // 3. 解夾定位面板（試了再量，會塌就還原）。內層先解，外層量到的高度才是撐開後的。
+    //    候選由深到淺：子孫 → node → 祖先。
+    for (const d of everyElement(node, []).reverse()) {
+      if (tryUncap(d, opts)) expanded++;
+    }
+    for (let n = node; n; n = n.parentElement) {
+      if (tryUncap(n, opts)) expanded++;
     }
     return { expanded, floated };
   }

@@ -129,35 +129,33 @@ offscreen.js           離螢幕頁面。只做一件事：base64 → blob URL�
 
 由內往外走，內層撐開後外層量到的 `scrollHeight` 才是對的（讀取 layout 屬性會強制 reflow）。
 
-### 侵入式展開只在牽涉 top layer 面板時啟用
-
-「展開子孫＋解夾定位面板」這套較侵入，**只在選取牽涉 top layer 浮動面板、且真的有捲軸時**才做
-（`expand()` 的 `aggressive = hasFloatingPanel(node) && findClippers(node).length > 0`）。
-其餘情況（一般 app shell 內容）維持原本只走祖先鏈、只撐 `clipsContent()` 容器的保守路徑，行為與加這套之前**逐字相同**。
-
-為什麼要這道閘門：GCP 主內容常把捲動主區寫成 `position: absolute; inset: 0`，它的子孫多是絕對定位、
-本身沒有 in-flow 高度。對這種容器 `height: auto`／放掉 `bottom`，整塊會**塌成 0、截出一張全白**
-（GCP「網路連線」實測就是這樣壞的）。所以只有 top layer 面板（自成一塊、錨在 viewport 上）才准動。
-
-`isFloatingPanel()` 只認 `:modal`／`:popover-open`（native `<dialog>.showModal` / popover 元素），
-不認一般高 z-index 的 `position: fixed` div——那種本來就蓋不過我們的工具列，也不該套侵入式手術。
-
-### 展開要涵蓋選取範圍的子孫，不只祖先鏈（僅 aggressive 時）
+### 展開要涵蓋選取範圍的子孫，不只祖先鏈
 
 選整個面板／dialog 時，真正在裁切的捲軸往往是**子孫**、不在祖先鏈上，只走祖先會只截到視窗高度那一段。
-`expand()` 在 aggressive 下先由深到淺（`everyElement(node).reverse()`）撐開選取內部的容器，再走祖先鏈。
-`findClippers()`（診斷計數）也在有 top layer 面板時一起算子孫，數字才對得上。
+`expand()` 先由深到淺（`everyElement(node).reverse()`）用 `growScroller()` 撐開選取內部的捲動容器，再走祖先鏈。
+`growScroller()` 只放高、不碰定位錨點，是安全的一步。`findClippers()`（診斷計數）也一起算子孫，數字才對得上。
 
-### 定位面板（top layer dialog / 側欄）要解「上下釘死」的夾制
+### 定位面板要解「上下釘死」的夾制——但要「試了再量」，不能靠結構猜
 
-`position: fixed`／`absolute` 且 `top`、`bottom` 兩邊都非 `auto` 的面板，會把整個內容卡在視窗高度。
-它自己 `scrollHeight == clientHeight`（內層 `overflow:auto` 把溢出吃掉了），所以 `clipsContent()` 認不出來
-——這正是 GCP Console 側欄「量到的尺寸對、但只截到一個視窗高度」的原因。
+`position: fixed`／`absolute` 且 `top`、`bottom` 兩邊都非 `auto`（或帶 `max-height`）的面板，會把內容卡在視窗高度。
+它自己 `scrollHeight == clientHeight`（內層 `overflow:auto` 把溢出吃掉了），`clipsContent()` 認不出來
+——這正是 GCP Console 側欄「量到的尺寸對、但只截到一個視窗高度」的原因。解法是放掉 `bottom`，
+讓面板依內容從 `top` 往下長高（`top` 不動很重要，放大 viewport 截圖時座標才穩）。
 
-`clampInfo()` 靠 inset 兩邊釘死來判斷（computed `height` 一律回傳 px，拿不到 `auto`，沒得靠），
-且**只對 `isFloatingPanel()` 認定的 top layer 面板**動手（見上一條，避免塌陷 app shell）。
-`relax()` 除了 `height: auto` 還要**放掉 `bottom`**，面板才會依內容從 `top` 往下長高——
-`top` 不動很重要，放大 viewport 截圖時座標才穩。
+**但不能靠屬性判斷哪些面板可以這樣動。** GCP 開機磁碟側欄是「高 z-index 的 `fixed` div、不是 native `<dialog>`」
+（所以第一版靠 `:modal`／`:popover-open` 偵測會漏掉它、又退回截不全）；而 GCP 主內容（網路連線）把捲動主區
+寫成 `position: absolute; inset: 0`，子孫多是絕對定位、本身沒有 in-flow 高度——這兩者從 CSS 屬性上難分，
+但對後者放掉 `bottom` 會整塊**塌成 0、截出一張全白**。
+
+所以 `tryUncap()` 用**試了再量**：先記下高度 → 放掉 `bottom`＋`height: auto` → 再量一次。
+**有長高才保留，沒長高（塌陷、或本來就放得下）就 `undoGrow()` 整個還原。** 這是唯一可靠、
+不依賴頁面結構的判準。實測開機磁碟側欄 900→1692（保留），app shell 主區 900→118（還原、不留痕跡）。
+
+`undoGrow()` 只還原「最後一個 `markGrow` 的元素」，所以 `tryUncap` 必須量完立刻決定、中間不插入其他 `remember`。
+候選由深到淺（子孫 → node → 祖先）處理，內層先解，外層量到的才是撐開後的高度。
+
+`growScroller`／`tryUncap` 的「有沒有長高」在 jsdom 測不出來（不做版面計算），
+所以單元測試用 harness 的 `grown: { id: rect }` 模擬 reflow，真頁面一定要另外實機驗證。
 
 ### `contains()` 不跨 shadow 邊界
 

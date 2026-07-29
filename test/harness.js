@@ -4,7 +4,9 @@
 
    jsdom 不做版面計算，所以尺寸要自己餵：
    - dims: { [id 或 tagName]: [scrollHeight, clientHeight] }
-   - rects: { [id]: DOMRect 形狀的物件 } */
+   - rects: { [id]: DOMRect 形狀的物件 }
+   - grown: { [id]: DOMRect } 這個元素被撐開（inline style 出現 height:auto）之後才回傳的尺寸。
+     用來讓 tryUncap() 的「試了再量」在 jsdom 也測得出來——真頁面靠實際 reflow，這裡靠這個模擬長高。 */
 
 const fs = require('fs');
 const path = require('path');
@@ -12,7 +14,7 @@ const { JSDOM } = require('jsdom');
 
 const PICKER = fs.readFileSync(path.join(__dirname, '..', 'picker.js'), 'utf8');
 
-function createPage({ html, dims = {}, rects = {}, url = 'https://example.com/page', dpr = 2 }) {
+function createPage({ html, dims = {}, rects = {}, grown = {}, url = 'https://example.com/page', dpr = 2 }) {
   const dom = new JSDOM(html, {
     url,
     pretendToBeVisual: true,
@@ -35,6 +37,10 @@ function createPage({ html, dims = {}, rects = {}, url = 'https://example.com/pa
 
   const EMPTY = { left: 0, top: 0, width: 10, height: 10, bottom: 10, right: 10 };
   w.Element.prototype.getBoundingClientRect = function () {
+    // 被撐開後（inline 出現 height:auto）改回傳長高後的尺寸，模擬真頁面的 reflow
+    if (grown[this.id] && /height:\s*auto/.test(this.getAttribute('style') || '')) {
+      return grown[this.id];
+    }
     return rects[this.id] || EMPTY;
   };
 
