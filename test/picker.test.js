@@ -108,16 +108,16 @@ test('app shell 的 html / body 也要展開，否則文件被切在視窗高度
 });
 
 test('選取範圍內部的捲動容器（子孫、不在祖先鏈上）也要展開', async () => {
-  // 選整個面板：真正在裁切的捲軸是子孫。彈窗（dialog / 側欄）常是這種結構
+  // 選整個 top layer 面板：真正在裁切的捲軸是子孫。彈窗（<dialog> / 側欄）常是這種結構
   const page = createPage({
     html: `<!DOCTYPE html><body>
-      <div id="panel">
+      <dialog id="panel" open>
         <header id="head">開機磁碟</header>
         <div id="body" style="overflow-y:auto;height:600px">
           <div id="content">很長的表單…</div>
         </div>
         <footer id="foot">選取 取消</footer>
-      </div>
+      </dialog>
     </body>`,
     dims: { body: [3000, 600] },
     rects: { panel: TALL },
@@ -133,16 +133,16 @@ test('選取範圍內部的捲動容器（子孫、不在祖先鏈上）也要�
   assert.equal(page.document.getElementById('body').getAttribute('style'), 'overflow-y:auto;height:600px');
 });
 
-test('固定定位、上下釘死的面板（top layer dialog）要放掉下緣才長得高', async () => {
-  // fixed 面板 top+bottom 兩邊釘死 → height:auto 仍被夾在視窗高度，內層捲軸撐開也沒用。
+test('top layer 面板（<dialog>）上下釘死時要放掉下緣才長得高', async () => {
+  // <dialog> 上下釘死 → height:auto 仍被夾在視窗高度，內層捲軸撐開也沒用。
   // 面板本身 scrollHeight==clientHeight（內層 overflow:auto 吃掉溢出），clipsContent 認不出來，
   // 要靠 inset 判斷、放掉 bottom 才會依內容往下長高。
   const style = 'position:fixed;top:0;bottom:0;right:0;height:100%;overflow:hidden';
   const page = createPage({
     html: `<!DOCTYPE html><body>
-      <div id="panel" style="${style}">
+      <dialog id="panel" open style="${style}">
         <div id="body" style="overflow-y:auto;height:100%"><div id="content">很長的表單…</div></div>
-      </div>
+      </dialog>
     </body>`,
     dims: { body: [3000, 800] },
     rects: { panel: TALL },
@@ -151,7 +151,7 @@ test('固定定位、上下釘死的面板（top layer dialog）要放掉下緣�
 
   const res = await page.send({ type: 'ncclip:prepare', floatMode: 'hide', wide: false });
 
-  assert.match(page.style('panel'), /bottom: auto/, '上下釘死的定位面板要放掉 bottom');
+  assert.match(page.style('panel'), /bottom: auto/, '上下釘死的 top layer 面板要放掉 bottom');
   assert.match(page.style('panel'), /height: auto !important/);
   assert.match(page.style('body'), /height: auto !important/, '內層捲軸也要撐開');
   assert.ok(res.expanded >= 2);
@@ -160,19 +160,40 @@ test('固定定位、上下釘死的面板（top layer dialog）要放掉下緣�
   assert.equal(page.document.getElementById('panel').getAttribute('style'), style, '還原要逐字回到原狀');
 });
 
-test('沒有捲軸時不去動定位面板（保守，不亂改版面）', async () => {
-  // 面板是 fixed inset 釘死，但裡面沒有任何在裁切的捲軸 → 不該碰它
+test('app shell 的 position:absolute;inset:0 捲動主區不解夾（否則塌成全白）', async () => {
+  // GCP 主內容常見結構：捲動主區是 absolute inset:0 的 div，子孫多是絕對定位、沒有 in-flow 高度。
+  // 對它放掉 bottom 會整塊塌成 0、截出全白。它不是 top layer 面板，clampInfo 必須略過它。
+  const shellStyle = 'position:absolute;top:0;bottom:0;left:0;right:0';
+  const page = createPage({
+    html: `<!DOCTYPE html><body>
+      <div id="shell" style="${shellStyle}">
+        <div id="scroll" style="overflow-y:auto;height:100%"><div id="panel">內容</div></div>
+      </div>
+    </body>`,
+    dims: { scroll: [3000, 800] },
+    rects: { panel: TALL },
+  });
+  page.pick('panel');
+
+  await page.send({ type: 'ncclip:prepare', floatMode: 'hide', wide: false });
+
+  // 捲軸照撐高，但 app shell 容器（非 top layer 面板）絕不能放掉 bottom
+  assert.match(page.style('scroll'), /height: auto !important/, '捲動主區要撐高');
+  assert.equal(page.style('shell'), shellStyle, 'app shell 容器不能被解夾，要逐字保持原狀');
+});
+
+test('沒有捲軸時不去動 top layer 面板（保守，不亂改版面）', async () => {
   const style = 'position:fixed;top:0;bottom:0;right:0';
   const page = createPage({
     html: `<!DOCTYPE html><body>
-      <div id="panel" style="${style}"><div id="content">短內容</div></div>
+      <dialog id="panel" open style="${style}"><div id="content">短內容</div></dialog>
     </body>`,
     rects: { panel: TALL },
   });
   page.pick('panel');
 
   await page.send({ type: 'ncclip:prepare', floatMode: 'hide', wide: false });
-  assert.equal(page.style('panel'), style, '沒有捲軸就不要動定位面板');
+  assert.equal(page.style('panel'), style, '沒有捲軸就不要動面板');
 });
 
 test('shadow DOM 裡的浮動元素也要找得到', async () => {

@@ -129,22 +129,35 @@ offscreen.js           離螢幕頁面。只做一件事：base64 → blob URL�
 
 由內往外走，內層撐開後外層量到的 `scrollHeight` 才是對的（讀取 layout 屬性會強制 reflow）。
 
-### 展開要涵蓋選取範圍的子孫，不只祖先鏈
+### 侵入式展開只在牽涉 top layer 面板時啟用
+
+「展開子孫＋解夾定位面板」這套較侵入，**只在選取牽涉 top layer 浮動面板、且真的有捲軸時**才做
+（`expand()` 的 `aggressive = hasFloatingPanel(node) && findClippers(node).length > 0`）。
+其餘情況（一般 app shell 內容）維持原本只走祖先鏈、只撐 `clipsContent()` 容器的保守路徑，行為與加這套之前**逐字相同**。
+
+為什麼要這道閘門：GCP 主內容常把捲動主區寫成 `position: absolute; inset: 0`，它的子孫多是絕對定位、
+本身沒有 in-flow 高度。對這種容器 `height: auto`／放掉 `bottom`，整塊會**塌成 0、截出一張全白**
+（GCP「網路連線」實測就是這樣壞的）。所以只有 top layer 面板（自成一塊、錨在 viewport 上）才准動。
+
+`isFloatingPanel()` 只認 `:modal`／`:popover-open`（native `<dialog>.showModal` / popover 元素），
+不認一般高 z-index 的 `position: fixed` div——那種本來就蓋不過我們的工具列，也不該套侵入式手術。
+
+### 展開要涵蓋選取範圍的子孫，不只祖先鏈（僅 aggressive 時）
 
 選整個面板／dialog 時，真正在裁切的捲軸往往是**子孫**、不在祖先鏈上，只走祖先會只截到視窗高度那一段。
-`expand()` 先由深到淺（`everyElement(node).reverse()`）撐開選取內部的容器，再走祖先鏈。
-`findClippers()`（診斷計數）也要一起算子孫，數字才對得上。
+`expand()` 在 aggressive 下先由深到淺（`everyElement(node).reverse()`）撐開選取內部的容器，再走祖先鏈。
+`findClippers()`（診斷計數）也在有 top layer 面板時一起算子孫，數字才對得上。
 
 ### 定位面板（top layer dialog / 側欄）要解「上下釘死」的夾制
 
-`position: fixed`／`absolute` 且 `top`、`bottom` 兩邊都非 `auto`（或帶 `max-height`）的面板，
-會把整個內容卡在視窗高度。它自己 `scrollHeight == clientHeight`（內層 `overflow:auto` 把溢出吃掉了），
-所以 `clipsContent()` 認不出來——這正是 GCP Console 側欄「量到的尺寸對、但只截到一個視窗高度」的原因。
+`position: fixed`／`absolute` 且 `top`、`bottom` 兩邊都非 `auto` 的面板，會把整個內容卡在視窗高度。
+它自己 `scrollHeight == clientHeight`（內層 `overflow:auto` 把溢出吃掉了），所以 `clipsContent()` 認不出來
+——這正是 GCP Console 側欄「量到的尺寸對、但只截到一個視窗高度」的原因。
 
 `clampInfo()` 靠 inset 兩邊釘死來判斷（computed `height` 一律回傳 px，拿不到 `auto`，沒得靠），
+且**只對 `isFloatingPanel()` 認定的 top layer 面板**動手（見上一條，避免塌陷 app shell）。
 `relax()` 除了 `height: auto` 還要**放掉 `bottom`**，面板才會依內容從 `top` 往下長高——
-`top` 不動很重要，放大 viewport 截圖時座標才穩。只有選取範圍內真的有捲軸（`allowUncap`）才動定位元素，
-避免對純裝飾的定位容器亂改版面。
+`top` 不動很重要，放大 viewport 截圖時座標才穩。
 
 ### `contains()` 不跨 shadow 邊界
 

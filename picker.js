@@ -619,6 +619,14 @@
     return node === document.body || node === document.documentElement;
   }
 
+  /* 選取是否牽涉到 top layer 浮動面板（node 自己、祖先或子孫）。
+     只有這時才啟用「子孫展開＋解夾」這套較侵入的處理，一般 app shell 內容走保守路徑。 */
+  function hasFloatingPanel(node) {
+    for (let n = node; n; n = n.parentElement) if (isFloatingPanel(n)) return true;
+    for (const d of everyElement(node, [])) if (isFloatingPanel(d)) return true;
+    return false;
+  }
+
   function findClippers(node) {
     const list = [];
     // 祖先鏈（含 node 自己）：內層撐開後外層才是最終尺寸
@@ -627,10 +635,12 @@
       if (clipsContent(n).any) list.push(n);
       n = n.parentElement;
     }
-    // 選取範圍內部的捲動容器：選整個面板／dialog 時，真正在裁切的捲軸
-    // 常常是子孫而不在祖先鏈上，只算祖先會少報、也會漏展開
-    for (const d of everyElement(node, [])) {
-      if (clipsContent(d).any) list.push(d);
+    // 選整個面板／dialog 時，真正在裁切的捲軸常是子孫、不在祖先鏈上。
+    // 但子孫展開只在牽涉 top layer 面板時才做，診斷計數也對齊這個條件才不會虛報。
+    if (hasFloatingPanel(node)) {
+      for (const d of everyElement(node, [])) {
+        if (clipsContent(d).any) list.push(d);
+      }
     }
     return list;
   }
@@ -688,18 +698,30 @@
     return touched;
   }
 
-  /* 判斷元素是不是「定位＋固定尺寸」把內層捲軸夾死的面板（fixed/absolute 的側欄、置中 dialog）。
-     這種容器 scrollHeight==clientHeight——內層自己的 overflow:auto 把溢出吃掉了，clipsContent() 認不出來，
-     但它用 top+bottom 兩邊釘死、或 max-height 把整個面板卡在視窗高度，裡面的捲軸撐開也會被夾回去。
-     只在「選取範圍內真的有捲軸」時才動它（allowUncap），避免對純裝飾的定位元素亂改版面。 */
+  /* 只有 top layer 的浮動面板（native <dialog>.showModal / popover）才可以「解夾」。
+     為什麼要這麼嚴：一般 app shell 常把捲動主區寫成 position:absolute;inset:0，
+     它的子孫多是絕對定位、本身沒有 in-flow 高度。一旦對它 height:auto／放掉 bottom，
+     整塊會塌成 0，截出一張全白——GCP「網路連線」主內容就是這樣壞掉的。
+     top layer 面板則是自成一塊、錨在 viewport 上的東西，撐開它才安全。 */
+  function isFloatingPanel(el) {
+    if (el === host) return false;
+    try {
+      if (el.matches(':modal') || el.matches(':popover-open')) return true;
+    } catch (e) {}
+    if (el.tagName === 'DIALOG' && el.hasAttribute('open')) return true;
+    if (el.hasAttribute && el.hasAttribute('popover')) return true;
+    return false;
+  }
+
+  /* 浮動面板用 top+bottom 兩邊釘死（或 max-height）把內容卡在視窗高度，裡面的捲軸撐開也會被夾回去。
+     它自己 scrollHeight==clientHeight（內層 overflow:auto 吃掉溢出），clipsContent() 認不出來，
+     要靠 inset 判斷、放掉 bottom 才會依內容從 top 往下長高。只在選取範圍內真的有捲軸時才動（allowUncap）。 */
   function clampInfo(el, allowUncap) {
-    if (!allowUncap) return null;
+    if (!allowUncap || !isFloatingPanel(el)) return null;
     const cs = getComputedStyle(el);
-    if (cs.position !== 'fixed' && cs.position !== 'absolute') return null;
-    // computed height 一律回傳 px（拿不到 auto），只能靠 inset 兩邊釘死或 max-height 來認固定尺寸
+    // computed height 一律回傳 px（拿不到 auto），只能靠 inset 兩邊釘死來認固定尺寸
     const insetY = cs.top !== 'auto' && cs.bottom !== 'auto';
     const insetX = cs.left !== 'auto' && cs.right !== 'auto';
-    if (!insetY && cs.maxHeight === 'none' && !(insetX && cs.maxWidth !== 'none')) return null;
     return { bottom: cs.bottom, right: cs.right, insetY, insetX };
   }
 
@@ -737,16 +759,21 @@
   function expand(node, opts) {
     saved = [];
     const floated = settleFloating(node, opts.floatMode) || 0;
-    // 有真的在捲的容器，才需要去放掉夾住它的定位面板；沒有就別碰定位元素，維持保守
-    const allowUncap = findClippers(node).length > 0;
+
+    // 「子孫展開＋解夾」較侵入，只在「選取牽涉 top layer 浮動面板」且「真的有捲軸」時才啟用。
+    // 一般 app shell 內容維持原本只走祖先鏈、只撐 clipsContent 容器的保守路徑——
+    // 那種頁面常把捲動主區寫成 position:absolute;inset:0，多做手術會把版面塌成全白。
+    const aggressive = hasFloatingPanel(node) && findClippers(node).length > 0;
     let expanded = 0;
 
     // 先撐開選取範圍「內部」的容器，由深到淺（reverse 前序）。
     // 選整個面板／dialog 時，真正在裁切的捲軸是子孫、不在祖先鏈上，
     // 漏掉它就只會截到視窗高度那一段。內層先撐開，外層再量 scrollHeight 才對，
     // 才能接住「內層撐高後外層才開始溢出」的連鎖。
-    for (const d of everyElement(node, []).reverse()) {
-      if (relax(d, opts, allowUncap)) expanded++;
+    if (aggressive) {
+      for (const d of everyElement(node, []).reverse()) {
+        if (relax(d, opts, true)) expanded++;
+      }
     }
 
     // 再由內往外走祖先鏈（含 node 自己）。
@@ -754,7 +781,7 @@
     // 漏掉它們的話整份文件會被切在視窗高度。
     let n = node;
     while (n) {
-      if (relax(n, opts, allowUncap)) expanded++;
+      if (relax(n, opts, aggressive)) expanded++;
       n = n.parentElement;
     }
     return { expanded, floated };
