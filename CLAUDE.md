@@ -23,6 +23,22 @@ npm test          # jsdom 跑的回歸測試，10 個案例
 **改完 background.js / manifest.json 要按卡片上的重新載入**；只改 picker.js 的話，
 重新在目標分頁點一次圖示就會注入新版（前提是先按過重新載入）。
 
+### 預覽筆記（notecraftapp）
+
+`notecraftapp` 裝成 devDependency，包了三個 npm script 對應它的 CLI 子命令。
+資料夾參數預設當前目錄，要指定筆記資料夾用 `--` 傳：
+
+```bash
+npm run notes            # = notecraftapp view，astro dev：HMR、可即時編輯
+npm run notes:build      # astro build 到 ~/.notecraft/cache
+npm run notes:serve      # 服務 build 過的 dist（背景 rebuild + auto reload）
+npm run notes:view -- ./my-notes --port 4321
+```
+
+**這幾個 script 要 Node ≥ 22**（`notecraftapp` 的 `engines`），跟擴充本身不同：
+`npm test` 那套 jsdom 回歸測試跑在 Node 16。跑 notes 指令前先 `nvm use 22`，
+否則裝相依時 esbuild 的平台 binary 會直接掛掉、且錯誤訊息不會指到版本問題。
+
 ## 架構
 
 三個執行環境，靠 message 溝通，訊息型別一律 `ncclip:` 前綴。
