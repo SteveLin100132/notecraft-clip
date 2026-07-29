@@ -1,0 +1,21 @@
+---
+title: Step 4 — C.「已選取」工具列
+description: 鎖定元素後浮出的操作列：金色徽章、元素路徑與尺寸、浮動元素下拉、水平展開核取與三顆匯出／重選／取消按鈕。
+tags:
+  - clip
+  - ui-state
+  - 工具列
+createdAt: '2026-07-28'
+updatedAt: '2026-07-29'
+---
+
+import GeneratedFrame from '@/components/GeneratedFrame.astro'
+import Step4SelectedToolbar from '@notes/components/step4-selected-toolbar'
+
+鎖定一個元素之後，底部浮出這條「已選取」工具列：金色徽章 → 元素描述（describePath 兩層路徑，nowrap + ellipsis）＋ meta 兩行 → 浮動元素下拉（自繪 chevron）→「連水平方向展開」核取方塊 → 三顆 pill 按鈕（金色 匯出 PNG／海軍藍 重選／outline 取消）。功能接線未動：下拉值、核取狀態、匯出行為沿用既有邏輯。CSS／結構逐字取自 `picker.js`——下拉是真的 `<select>`、核取是真的 checkbox。
+
+下面三個面板依序是淺色網頁預設、淺色網頁已勾「連水平方向展開」（藍底白勾），以及深色網頁上靠白描邊＋深陰影維持可讀的狀態。
+
+<GeneratedFrame id="step4-selected-toolbar" type="free" caption="「已選取」工具列的三種呈現：淺色預設、已勾水平展開、深色頁面白描邊。">
+  <Step4SelectedToolbar />
+</GeneratedFrame>

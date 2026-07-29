@@ -54,10 +54,11 @@
 ## 搭配 notecraftapp 預覽筆記
 
 截好的 PNG 是要放進 NoteCraft 筆記的。這個 repo 也裝了
-[`notecraftapp`](https://www.npmjs.com/package/notecraftapp)，可以直接在瀏覽器裡預覽筆記：
+[`notecraftapp`](https://www.npmjs.com/package/notecraftapp)，`notes/` 底下放了一組
+「NoteCraft Clip 介面設計歷程」筆記（Step 1–7 的設計重製），可以直接在瀏覽器裡預覽：
 
 ```bash
-npm run notes -- ./你的筆記資料夾      # 啟動預覽，改筆記即時反映
+npm run notes            # 啟動預覽（預設讀 ./notes），改筆記即時反映
 ```
 
 > **需要 Node 22 以上**（跟擴充本身的測試環境不同）。若用 nvm，先 `nvm use 22` 再跑，

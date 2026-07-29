@@ -1,0 +1,59 @@
+---
+title: Step 1 — 設計 token 與 Shadow 樣式底座
+description: 重建 NoteCraft Clip 的視覺基座：字體、色彩、圓角、陰影、按鈕與選取狀態的設計 token，後續 A–E 各狀態都引用這裡，不再自行調色。
+tags:
+  - clip
+  - 設計規範
+  - 設計基座
+createdAt: '2026-07-28'
+updatedAt: '2026-07-29'
+---
+
+import GeneratedFrame from '@/components/GeneratedFrame.astro'
+import Step1Typography from '@notes/components/step1-typography'
+import Step1Color from '@notes/components/step1-color'
+import Step1Primitives from '@notes/components/step1-primitives'
+import Step1Selection from '@notes/components/step1-selection'
+import Step1DarkCard from '@notes/components/step1-dark-card'
+
+這是重建的視覺基座：實際打包進擴充功能的 Noto Sans TC / Noto Sans / Noto Sans Mono（子集 woff2），以及 README Design Tokens 的色彩、圓角、陰影、元件雛形。後續 A–E 各狀態都會引用這裡的 token，不再自行調色，作為整套介面的共同基準。
+
+## 字體
+
+CJK 用 Noto Sans TC（700 主字／500 標籤／400 內文），元素描述、尺寸、檔名用 Noto Sans Mono。使用者動態文字（描述、檔名）皆為 ASCII，故 TC 只需子集固定介面字。
+
+<GeneratedFrame id="step1-typography" type="free" caption="三級 CJK 字重 + Mono 描述／尺寸的實際樣本。">
+  <Step1Typography />
+</GeneratedFrame>
+
+## 色彩
+
+品牌藍負責結構、金／橘負責 CTA 與擷取焦點、冷調中性打底，再加三個語意色。
+
+<GeneratedFrame id="step1-color" type="free" caption="品牌藍 · 金／橘 · 中性 · 語意四組色票，色值即擴充實際使用的 token。">
+  <Step1Color />
+</GeneratedFrame>
+
+## 圓角・陰影・按鈕・鍵帽
+
+pill 按鈕三態（主要橘、次要藍、幽靈）、鍵帽、徽章，以及四級陰影。
+
+<GeneratedFrame id="step1-primitives" type="free" caption="互動元件雛形與陰影階層。">
+  <Step1Primitives />
+</GeneratedFrame>
+
+## 選取覆蓋框（A 狀態預覽）
+
+A1 hover：藍色虛線 + 外圈輔助線 + 藍標籤。A2 鎖定：金色實線 + 柔光暈 + 金標籤 + 右下尺寸標籤。實作會用行進虛線動畫，keyframes 保留四軸 100% 錨點。
+
+<GeneratedFrame id="step1-selection" type="free" caption="選取框的 hover 與鎖定兩態，A1 帶行進虛線動畫。">
+  <Step1Selection />
+</GeneratedFrame>
+
+## 深色網頁上的自足卡片
+
+深底時卡片加 1px 白色外描邊、陰影換 `0 14px 34px rgba(0,0,0,.45)`，確保浮動卡片在任意背景都可讀。
+
+<GeneratedFrame id="step1-dark-card" type="free" caption="深色頁面上的成功卡片，靠白描邊與加深陰影維持可讀性。">
+  <Step1DarkCard />
+</GeneratedFrame>

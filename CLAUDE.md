@@ -25,19 +25,29 @@ npm test          # jsdom 跑的回歸測試，10 個案例
 
 ### 預覽筆記（notecraftapp）
 
-`notecraftapp` 裝成 devDependency，包了三個 npm script 對應它的 CLI 子命令。
-資料夾參數預設當前目錄，要指定筆記資料夾用 `--` 傳：
+`notecraftapp` 裝成 devDependency，包了幾個 npm script 對應它的 CLI 子命令，
+預設都指向 `./notes`（本專案的筆記資料夾）：
 
 ```bash
-npm run notes            # = notecraftapp view，astro dev：HMR、可即時編輯
+npm run notes            # = notecraftapp view ./notes，astro dev：HMR、可即時編輯
 npm run notes:build      # astro build 到 ~/.notecraft/cache
 npm run notes:serve      # 服務 build 過的 dist（背景 rebuild + auto reload）
-npm run notes:view -- ./my-notes --port 4321
+npm run notes:view -- ./other --port 4321   # 要換資料夾用 -- 傳
 ```
 
 **這幾個 script 要 Node ≥ 22**（`notecraftapp` 的 `engines`），跟擴充本身不同：
 `npm test` 那套 jsdom 回歸測試跑在 Node 16。跑 notes 指令前先 `nvm use 22`，
 否則裝相依時 esbuild 的平台 binary 會直接掛掉、且錯誤訊息不會指到版本問題。
+
+筆記與元件的擺放（`notecraftapp` 的約定，別搬動）：
+
+- `notes/*.mdx`：每篇筆記。目前是「NoteCraft Clip 介面設計歷程」系列共 7 篇（Step 1–7），
+  從七份設計 Artifact 重製而來，內文為 MDX、UI 雛形做成內嵌元件。
+- `.notecraft/components/*.tsx`：筆記內嵌的 React 元件。**放在專案根、不是 `notes/` 底下**——
+  MDX 的 `@notes` alias 指向 `<專案根>/.notecraft`（見 `astro.config.mjs` 用 `NOTECRAFT_USER_CWD` 的註解）。
+  元件用 scoped `<style>` 自帶 CSS（viewer 的 Tailwind 只掃它自己的 `src/`，不會掃到這裡，
+  寫 utility class 會被 purge），要嵌到 MDX 就用 `GeneratedFrame` 包起來。
+- `.notecraft/series.json`：系列定義（章節順序、accent、icon）。
 
 ## 架構
 

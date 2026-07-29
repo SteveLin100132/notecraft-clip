@@ -1,0 +1,19 @@
+---
+title: Step 5 — D. 截圖中
+description: 截圖進行中的工具列狀態：橘色圖片徽章、不定量流光進度、真實層數 meta，CTA 進 disabled 附 spinner，只留取消可用。
+tags:
+  - clip
+  - ui-state
+  - 截圖中
+createdAt: '2026-07-28'
+updatedAt: '2026-07-29'
+---
+
+import GeneratedFrame from '@/components/GeneratedFrame.astro'
+import Step5Capturing from '@notes/components/step5-capturing'
+
+徽章換 #fdf4e6 底＋橘色圖片圖示；進度為**不定量流光**（不造假百分比與輸出尺寸），meta 用真實層數「展開 N 層容器並合成中…」（N 來自 findClippers）；CTA 進 disabled＋spinner「截圖中…」，高度維持 36px；期間只留「取消」可用。CSS／結構逐字取自 picker.js，流光與 spinner 會動。
+
+<GeneratedFrame id="step5-capturing" type="free" caption="截圖中的工具列：不定量流光進度＋disabled 主按鈕附 spinner，僅取消可用。">
+  <Step5Capturing />
+</GeneratedFrame>

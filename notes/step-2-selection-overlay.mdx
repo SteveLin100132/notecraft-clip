@@ -1,0 +1,19 @@
+---
+title: Step 2 — A. 選取覆蓋框（hover / 鎖定）
+description: 選取覆蓋框的兩態：A1 藍色行進虛線的 hover 框選中，A2 金色實線＋尺寸標籤的已鎖定，並在淺深底各驗證。
+tags:
+  - clip
+  - ui-state
+  - 選取框
+createdAt: '2026-07-28'
+updatedAt: '2026-07-29'
+---
+
+import GeneratedFrame from '@/components/GeneratedFrame.astro'
+import Step2SelectionOverlay from '@notes/components/step2-selection-overlay'
+
+下面四格的 CSS 逐字取自 **picker.js**。A1 為藍色行進虛線（marching ants，四軸 100% 錨點保留，會動）＋外圈輔助線＋藍色角落標籤；A2 為金色實線＋柔光暈＋金色標籤＋右下尺寸標籤。在淺色與深色網頁上各驗證一次。
+
+<GeneratedFrame id="step2-selection-overlay" type="free" caption="選取框的 hover 與鎖定兩態，於淺深兩種底色各驗證一次。">
+  <Step2SelectionOverlay />
+</GeneratedFrame>

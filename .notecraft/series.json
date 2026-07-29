@@ -1,0 +1,21 @@
+{
+  "series": [
+    {
+      "id": "notecraft-clip-ui",
+      "title": "NoteCraft Clip 介面設計歷程",
+      "eyebrow": "NOTECRAFT CLIP",
+      "description": "從設計 token 基座，一路走到選取框、框選中／已選取工具列、截圖中、成功／錯誤 toast 與 Logo 的七步介面重製。",
+      "accent": "blue",
+      "icon": "layers",
+      "slugs": [
+        "step-1-design-base",
+        "step-2-selection-overlay",
+        "step-3-select-toolbar",
+        "step-4-selected-toolbar",
+        "step-5-capturing",
+        "step-6-toast",
+        "step-7-logo"
+      ]
+    }
+  ]
+}

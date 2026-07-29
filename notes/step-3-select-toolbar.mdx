@@ -1,0 +1,19 @@
+---
+title: Step 3 — B.「框選中」工具列
+description: 框選狀態的 56px 浮動工具列：藍色徽章、主副字、分隔線與三組鍵帽，淺深底皆自足可讀。
+tags:
+  - clip
+  - ui-state
+  - 工具列
+createdAt: '2026-07-28'
+updatedAt: '2026-07-29'
+---
+
+import GeneratedFrame from '@/components/GeneratedFrame.astro'
+import Step3SelectToolbar from '@notes/components/step3-select-toolbar'
+
+56px 白色浮動卡片、置中貼底、ncRise 入場（保留 translateX(-50%)）。左起：藍色圖示徽章 → 主字「選一個區塊」＋副字 → 分隔線 → 三組鍵帽（↑ 選父層／↓ 選子層／Esc 取消）。鍵盤行為沿用現有 onKey 邏輯，未改。CSS 與結構逐字取自 picker.js。
+
+<GeneratedFrame id="step3-select-toolbar" type="free" caption="框選中工具列，淺色與深色宿主網頁上各一份。">
+  <Step3SelectToolbar />
+</GeneratedFrame>

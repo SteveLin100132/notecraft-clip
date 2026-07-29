@@ -1,0 +1,23 @@
+---
+title: Step 7 — Logo mark → favicon 與工具列圖示
+description: >-
+  從定案 Logo v2 取出 mark 幾何，用 headless Chrome 產出各尺寸 PNG，每個尺寸套用自己的縮小規則，並寫進 manifest
+  的 icons 與 action.default_icon。
+tags:
+  - clip
+  - logo
+  - icon
+createdAt: '2026-07-28'
+updatedAt: '2026-07-29'
+---
+
+import GeneratedFrame from '@/components/GeneratedFrame.astro'
+import Step7Logo from '@notes/components/step7-logo'
+
+從定案 Logo v2 取出 mark 幾何，用 headless Chrome 產出各尺寸 PNG。每個尺寸套用自己的縮小規則：48／128 stroke 3.4 加兩條筆記行、32 stroke 4、24 stroke 4.6（省一條線）、16 stroke 6（括號內縮、只留一條線）。已寫進 manifest 的 `icons`（16／32／48／128）與 `action.default_icon`（16／24／32）。
+
+下面直接嵌入 `icons/` 底下實際打包的點陣圖，淺底與深底並排檢查，最後是工具列動作圖示的實際渲染示意。
+
+<GeneratedFrame id="step7-logo" type="free" caption="各尺寸 favicon／工具列圖示（實際 PNG），以及工具列 action 圖示示意。">
+  <Step7Logo />
+</GeneratedFrame>

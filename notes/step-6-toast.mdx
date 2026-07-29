@@ -1,0 +1,19 @@
+---
+title: Step 6 — E. 成功／錯誤 toast
+description: 截圖結束後浮現的 430px 獨立卡片：成功回報存檔結果與後續動作，錯誤沿用翻譯後、已指向下一步的訊息。
+tags:
+  - clip
+  - ui-state
+  - toast
+createdAt: '2026-07-28'
+updatedAt: '2026-07-29'
+---
+
+import GeneratedFrame from '@/components/GeneratedFrame.astro'
+import Step6Toast from '@notes/components/step6-toast'
+
+430px 獨立卡片、右上圓形關閉鈕。E1 成功（`role=status`，約 7 秒自動消失、hover 暫停）：綠勾徽章＋「已存到下載資料夾」＋檔名＋展開／浮動／尺寸說明＋「開啟資料夾」（接 `chrome.downloads.show`）／「再截一張」。E2 錯誤（`role=alert`，不自動消失）：紅三角徽章＋「截圖沒有完成」＋沿用 background 翻譯後、已指向下一步的錯誤訊息＋「重新截圖」／「查看說明」（開啟打包 README）。CSS／結構逐字取自 `picker.js`。
+
+<GeneratedFrame id="step6-toast" type="free" caption="E1 成功／E2 錯誤 toast，各在淺色與深色宿主網頁上；深色成功因無 downloadId 隱藏「開啟資料夾」。">
+  <Step6Toast />
+</GeneratedFrame>
